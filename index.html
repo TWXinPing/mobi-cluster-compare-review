@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MOBI cluster · 處理流程比較（離線）</title>
+<style>
+  :root {
+    --bg: #f4f4f5;
+    --card: #ffffff;
+    --text: #18181b;
+    --muted: #52525b;
+    --faint: #71717a;
+    --border: #d4d4d8;
+    --accent: #2563eb;
+    --accent-fg: #ffffff;
+    --info-bg: #eff6ff;
+    --info-bd: #bfdbfe;
+    --warn-bg: #fffbeb;
+    --warn-bd: #fde68a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", "Microsoft JhengHei", "PingFang TC", sans-serif;
+    line-height: 1.45;
+  }
+  .wrap {
+    max-width: 1480px;
+    margin: 0 auto;
+    padding: 20px 16px 40px;
+  }
+  h1 { font-size: 22px; margin: 0 0 8px; font-weight: 650; }
+  h2 { font-size: 16px; margin: 0; font-weight: 650; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .faint { color: var(--faint); font-size: 12px; }
+  .stack { display: flex; flex-direction: column; gap: 12px; }
+  .stack-lg { gap: 20px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .grid2 {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 20px;
+    align-items: start;
+  }
+  @media (max-width: 980px) {
+    .grid2 { grid-template-columns: 1fr; }
+  }
+  .panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+  .panel-meta {
+    min-height: 152px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .panel-notes {
+    min-height: 56px;
+    max-height: 56px;
+    overflow: auto;
+  }
+  .divider {
+    height: 1px;
+    background: var(--border);
+    border: 0;
+    margin: 4px 0;
+  }
+  .callout {
+    border: 1px solid var(--info-bd);
+    background: var(--info-bg);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+  .callout.warn {
+    border-color: var(--warn-bd);
+    background: var(--warn-bg);
+  }
+  .pill {
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .pill.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-fg);
+  }
+  select {
+    min-height: 32px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 8px;
+    background: var(--card);
+    color: var(--text);
+    font: inherit;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .card-h {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .card-h .trail { color: var(--muted); font-weight: 500; }
+  .card-b { padding: 12px; }
+  .label { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+  .fig {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 4px;
+    background: #fafafa;
+    flex: 1 1 auto;
+    width: 100% !important;
+    max-width: 100%;
+    height: auto !important;
+    min-width: 0;
+  }
+  .fig img {
+    display: block;
+    width: 100%;
+    height: auto;
+    object-fit: contain;
+  }
+  .anat-row {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .anat-row .fig {
+    width: 140px !important;
+    height: 140px !important;
+    max-width: calc(50% - 6px) !important;
+    flex: 0 0 140px !important;
+    aspect-ratio: 1 / 1;
+  }
+  .anat-row .fig img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  .pair-row {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 8px;
+    min-width: 0;
+    align-items: flex-start;
+  }
+  .pair-row > div {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .pair-row .fig {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 1 1 auto !important;
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<script>
+const DATA = {"generated_note": "Unsigned intercept/slope 3×3 + topo/dip thumbnails. Regenerate via _gen_mobi_cluster_compare_canvas.py", "pipelines": {"autoNum": {"id": "autoNum", "label": "autoNum (N36, no remove)", "note": "head_rotation_Study_withBeh_autoNumCluster · AbsError unsigned 3×3", "results": {"abserror": {"id": "abserror", "label": "AbsError", "blurb": "Legacy AbsError (NoROI suffix); clusters with LME only.", "clusters": [{"n": 3, "mean_x": null, "mean_y": null, "mean_z": null, "region": null, "topo": "img/img_0001.jpg", "dip": "img/img_0002.jpg", "intercept": "img/img_0003.png", "slope": "img/img_0004.jpg", "overview": null}, {"n": 4, "mean_x": null, "mean_y": null, "mean_z": null, "region": null, "topo": "img/img_0005.jpg", "dip": "img/img_0006.jpg", "intercept": "img/img_0007.png", "slope": "img/img_0008.jpg", "overview": null}, {"n": 5, "mean_x": null, "mean_y": null, "mean_z": null, "region": null, "topo": "img/img_0009.jpg", "dip": "img/img_0010.jpg", "intercept": "img/img_0011.png", "slope": "img/img_0012.jpg", "overview": null}, {"n": 6, "mean_x": null, "mean_y": null, "mean_z": null, "region": null, "topo": "img/img_0013.jpg", "dip": "img/img_0014.jpg", "intercept": "img/img_0015.png", "slope": "img/img_0016.jpg", "overview": null}, {"n": 7, "mean_x": null, "mean_y": null, "mean_z": null, "region": null, "topo": "img/img_0017.jpg", "dip": "img/img_0018.jpg", "intercept": "img/img_0019.png", "slope": "img/img_0020.jpg", "overview": null}, {"n": 8, "mean_x": null, "mean_y": null, "mean_z": null, "region": null, "topo": "img/img_0021.jpg", "dip": "img/img_0022.jpg", "intercept": "img/img_0023.png", "slope": "img/img_0024.jpg", "overview": null}, {"n": 9, "mean_x": null, "mean_y": null, "mean_z": null, "region": null, "topo": "img/img_0025.jpg", "dip": "img/img_0026.jpg", "intercept": "img/img_0027.png", "slope": "img/img_0028.jpg", "overview": null}]}}}, "N31": {"id": "N31", "label": "N31", "note": "Exclude subjects 7/28/29/34/38 · AbsError EncodeFromM200P1000 preferred", "results": {"abserror": {"id": "abserror", "label": "AbsError (M200 window)", "blurb": "AbsError_EncodeFromM200P1000 unsigned 3×3.", "clusters": [{"n": 3, "mean_x": null, "mean_y": null, "mean_z": null, "region": null, "topo": "img/img_0029.jpg", "dip": "img/img_0030.jpg", "intercept": "img/img_0031.png", "slope": "img/img_0032.jpg", "overview": null}, {"n": 4, "mean_x": null, "mean_y": null, "mean_z": null, "region": null, "topo": "img/img_0033.jpg", "dip": "img/img_0034.jpg", "intercept": "img/img_0035.png", "slope": "img/img_0036.jpg", "overview": null}, {"n": 5, "mean_x": null, "mean_y": null, "mean_z": null, "region": null, "topo": "img/img_0037.jpg", "dip": "img/img_0038.jpg", "intercept": "img/img_0039.jpg", "slope": "img/img_0040.jpg", "overview": null}, {"n": 6, "mean_x": null, "mean_y": null, "mean_z": null, "region": null, "topo": "img/img_0041.jpg", "dip": "img/img_0042.jpg", "intercept": "img/img_0043.png", "slope": "img/img_0044.jpg", "overview": null}, {"n": 7, "mean_x": null, "mean_y": null, "mean_z": null, "region": null, "topo": "img/img_0045.jpg", "dip": "img/img_0046.jpg", "intercept": "img/img_0047.jpg", "slope": "img/img_0048.jpg", "overview": null}, {"n": 8, "mean_x": null, "mean_y": null, "mean_z": null, "region": null, "topo": "img/img_0049.jpg", "dip": "img/img_0050.jpg", "intercept": "img/img_0051.png", "slope": "img/img_0052.jpg", "overview": null}, {"n": 9, "mean_x": null, "mean_y": null, "mean_z": null, "region": null, "topo": "img/img_0053.jpg", "dip": "img/img_0054.jpg", "intercept": "img/img_0055.jpg", "slope": "img/img_0056.png", "overview": null}]}}}, "N31_optk": {"id": "N31_optk", "label": "N31_optk", "note": "Same exclusion as N31 · optimal kmeans · baseline_lim = [−Inf, −200]", "results": {"abserror": {"id": "abserror", "label": "AbsError · baseline [−Inf, −200]", "blurb": "Root AbsError_EncodeFromM200P1000 unsigned 3×3 · baseline_lim = [−Inf, −200].", "clusters": [{"n": 4, "mean_x": 0.64, "mean_y": 12.24, "mean_z": 66.14, "region": "Supp Motor Area L", "topo": "img/img_0057.jpg", "dip": "img/img_0058.jpg", "intercept": "img/img_0059.png", "slope": "img/img_0060.jpg", "overview": null}, {"n": 5, "mean_x": -12.54, "mean_y": -8.99, "mean_z": 76.83, "region": "Supp Motor Area L", "topo": "img/img_0061.jpg", "dip": "img/img_0062.jpg", "intercept": "img/img_0063.jpg", "slope": "img/img_0064.jpg", "overview": null}, {"n": 6, "mean_x": 22.92, "mean_y": -17.84, "mean_z": 74.99, "region": "Precentral R", "topo": "img/img_0065.jpg", "dip": "img/img_0066.jpg", "intercept": "img/img_0067.png", "slope": "img/img_0068.jpg", "overview": null}, {"n": 3, "mean_x": -8.9, "mean_y": -32.15, "mean_z": 79.57, "region": "Paracentral Lobule L", "topo": "img/img_0069.jpg", "dip": "img/img_0070.jpg", "intercept": "img/img_0071.jpg", "slope": "img/img_0072.png", "overview": null}, {"n": 9, "mean_x": 7.06, "mean_y": -58.01, "mean_z": 71.85, "region": "Precuneus R", "topo": "img/img_0073.jpg", "dip": "img/img_0074.jpg", "intercept": "img/img_0075.jpg", "slope": "img/img_0076.jpg", "overview": null}, {"n": 7, "mean_x": 33.07, "mean_y": -66.75, "mean_z": 58.71, "region": "Parietal Sup R", "topo": "img/img_0077.jpg", "dip": "img/img_0078.jpg", "intercept": "img/img_0079.png", "slope": "img/img_0080.jpg", "overview": null}, {"n": 8, "mean_x": -24.84, "mean_y": -68.35, "mean_z": 62.02, "region": "Parietal Sup L", "topo": "img/img_0081.jpg", "dip": "img/img_0082.jpg", "intercept": "img/img_0083.jpg", "slope": "img/img_0084.jpg", "overview": null}]}, "ppem": {"id": "ppem", "label": "ppem (OmegaHΔ) · baseline [−Inf, −200]", "blurb": "anti_target_eye_toEEG · OmegaHDeltaM5000 · baseline_lim = [−Inf, −200].", "clusters": [{"n": 4, "mean_x": 0.64, "mean_y": 12.24, "mean_z": 66.14, "region": "Supp Motor Area L", "topo": "img/img_0085.jpg", "dip": "img/img_0086.jpg", "intercept": "img/img_0087.png", "slope": "img/img_0088.jpg", "overview": null}, {"n": 5, "mean_x": -12.54, "mean_y": -8.99, "mean_z": 76.83, "region": "Supp Motor Area L", "topo": "img/img_0089.jpg", "dip": "img/img_0090.jpg", "intercept": "img/img_0091.jpg", "slope": "img/img_0092.png", "overview": null}, {"n": 6, "mean_x": 22.92, "mean_y": -17.84, "mean_z": 74.99, "region": "Precentral R", "topo": "img/img_0093.jpg", "dip": "img/img_0094.jpg", "intercept": "img/img_0095.jpg", "slope": "img/img_0096.png", "overview": null}, {"n": 3, "mean_x": -8.9, "mean_y": -32.15, "mean_z": 79.57, "region": "Paracentral Lobule L", "topo": "img/img_0097.jpg", "dip": "img/img_0098.jpg", "intercept": "img/img_0099.png", "slope": "img/img_0100.jpg", "overview": null}, {"n": 9, "mean_x": 7.06, "mean_y": -58.01, "mean_z": 71.85, "region": "Precuneus R", "topo": "img/img_0101.jpg", "dip": "img/img_0102.jpg", "intercept": "img/img_0103.jpg", "slope": "img/img_0104.jpg", "overview": null}, {"n": 7, "mean_x": 33.07, "mean_y": -66.75, "mean_z": 58.71, "region": "Parietal Sup R", "topo": "img/img_0105.jpg", "dip": "img/img_0106.jpg", "intercept": "img/img_0107.jpg", "slope": "img/img_0108.jpg", "overview": null}, {"n": 8, "mean_x": -24.84, "mean_y": -68.35, "mean_z": 62.02, "region": "Parietal Sup L", "topo": "img/img_0109.jpg", "dip": "img/img_0110.jpg", "intercept": "img/img_0111.jpg", "slope": "img/img_0112.jpg", "overview": null}]}, "me_deviate_cat": {"id": "me_deviate_cat", "label": "ME AbsError×deviate_size (cat)", "blurb": "c4 frontal theta · ME-only abs_error×deviate_size (Small/Large) · abserror_ME_deviateSize.", "fig_labels": ["ME AbsError×deviate_size (theta TFCE)"], "clusters": [{"n": 4, "mean_x": 0.64, "mean_y": 12.24, "mean_z": 66.14, "region": "Supp Motor Area L", "topo": "img/img_0113.jpg", "dip": "img/img_0114.jpg", "intercept": null, "slope": null, "overview": "img/img_0115.png", "overview2": null}]}, "me_deviate_cont": {"id": "me_deviate_cont", "label": "ME AbsError×|degree| (cont)", "blurb": "c4 frontal theta · ME-only abs_error×deviate (|degree|∈[5,45]) · abserror_ME_deviateCont.", "fig_labels": ["ME AbsError×|degree| (theta TFCE)"], "clusters": [{"n": 4, "mean_x": 0.64, "mean_y": 12.24, "mean_z": 66.14, "region": "Supp Motor Area L", "topo": "img/img_0116.jpg", "dip": "img/img_0117.jpg", "intercept": null, "slope": null, "overview": "img/img_0118.png", "overview2": null}]}, "mevp_by_deviate": {"id": "mevp_by_deviate", "label": "MEvp AbsError×Encode @ Small|Large", "blurb": "c4 · within DeviateLevel: abs_error×Encode (ME vs VP) · abserror_MEvp_byDeviateSize/{Small,Large}.", "fig_labels": ["MEvp Small (theta TFCE)", "MEvp Large (theta TFCE)"], "clusters": [{"n": 4, "mean_x": 0.64, "mean_y": 12.24, "mean_z": 66.14, "region": "Supp Motor Area L", "topo": "img/img_0119.jpg", "dip": "img/img_0120.jpg", "intercept": null, "slope": null, "overview": "img/img_0121.png", "overview2": "img/img_0122.png"}]}, "abs_3way_cat": {"id": "abs_3way_cat", "label": "AbsError×Encode×deviate 3-way (cat)", "blurb": "c4 · abs_error×Encode×deviate_size · abserror_AbsError_x_Encode_x_Deviate (theta slopes + mains).", "fig_labels": ["AbsError slopes (theta)", "Mains (encode·deviate)"], "clusters": [{"n": 4, "mean_x": 0.64, "mean_y": 12.24, "mean_z": 66.14, "region": "Supp Motor Area L", "topo": "img/img_0123.jpg", "dip": "img/img_0124.jpg", "intercept": null, "slope": null, "overview": "img/img_0125.png", "overview2": "img/img_0126.png"}]}, "abs_3way_cont": {"id": "abs_3way_cont", "label": "AbsError×Encode×|degree| 3-way (cont)", "blurb": "c4 · abs_error×Encode×deviate (|degree|) · abserror_AbsError_x_Encode_x_DeviateCont (theta slopes + mains).", "fig_labels": ["AbsError slopes (theta)", "Mains (encode·deviate)"], "clusters": [{"n": 4, "mean_x": 0.64, "mean_y": 12.24, "mean_z": 66.14, "region": "Supp Motor Area L", "topo": "img/img_0127.jpg", "dip": "img/img_0128.jpg", "intercept": null, "slope": null, "overview": "img/img_0129.png", "overview2": "img/img_0130.png"}]}}}, "N34": {"id": "N34", "label": "N34", "note": "Exclude 28/34 · k≈15 · AbsError LME only for some clusters so far", "results": {"abserror": {"id": "abserror", "label": "AbsError", "blurb": "Only clusters with completed step6 LME are listed.", "clusters": [{"n": 3, "mean_x": 0.965484560773854, "mean_y": -28.4022754052093, "mean_z": 84.0715779910856, "region": "Paracentral Lobule L (~4 mm)", "topo": "img/img_0131.jpg", "dip": "img/img_0132.jpg", "intercept": "img/img_0133.png", "slope": "img/img_0134.png", "overview": null}, {"n": 14, "mean_x": 24.3990480889346, "mean_y": -31.1377937340877, "mean_z": 76.9626883185914, "region": "Postcentral R", "topo": "img/img_0135.jpg", "dip": "img/img_0136.jpg", "intercept": "img/img_0137.png", "slope": "img/img_0138.png", "overview": null}]}}}, "OG": {"id": "OG", "label": "OG (no remove)", "note": "Original ICA&behclean NoSep_NoROI clustering · pick AbsError baseline or ppem inside · topo/dip from abserror_tfce_signed_posneg", "results": {"abs_legacy": {"id": "abs_legacy", "label": "AbsError · baseline (−Inf, 0) · pos|neg", "blurb": "abserror_tfce_signed_posneg · intercept and slope each shown as TFCE pos | neg (MaskSign). c6 filenames include _NoROI.", "clusters": [{"n": 9, "mean_x": -1.59, "mean_y": 26.69, "mean_z": 64.78, "region": "anterior pre-SMA / dorsal medial superior frontal", "topo": "img/img_0139.jpg", "dip": "img/img_0140.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0141.png", "intercept_neg": "img/img_0142.png", "slope_pos": "img/img_0143.png", "slope_neg": "img/img_0144.png", "slope_both": null, "mi_pos": null, "mi_neg": null}, {"n": 3, "mean_x": -13.61, "mean_y": 0.64, "mean_z": 74.0, "region": "left medial superior frontal, SMA/pre-SMA junction", "topo": "img/img_0145.jpg", "dip": "img/img_0146.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0147.png", "intercept_neg": "img/img_0148.png", "slope_pos": "img/img_0149.png", "slope_neg": "img/img_0150.png", "slope_both": null, "mi_pos": null, "mi_neg": null}, {"n": 5, "mean_x": 24.25, "mean_y": -9.13, "mean_z": 71.98, "region": "right dorsal premotor / lateral SMA vicinity", "topo": "img/img_0151.jpg", "dip": "img/img_0152.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0153.png", "intercept_neg": "img/img_0154.png", "slope_pos": "img/img_0155.png", "slope_neg": "img/img_0156.png", "slope_both": null, "mi_pos": null, "mi_neg": null}, {"n": 11, "mean_x": -22.51, "mean_y": -26.15, "mean_z": 75.86, "region": "left dorsal postcentral / superior sensorimotor", "topo": "img/img_0157.jpg", "dip": "img/img_0158.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0159.png", "intercept_neg": "img/img_0160.png", "slope_pos": "img/img_0161.png", "slope_neg": "img/img_0162.png", "slope_both": null, "mi_pos": null, "mi_neg": null}, {"n": 10, "mean_x": 2.44, "mean_y": -30.19, "mean_z": 83.75, "region": "paracentral lobule / medial sensorimotor", "topo": "img/img_0163.jpg", "dip": "img/img_0164.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0165.png", "intercept_neg": "img/img_0166.png", "slope_pos": "img/img_0167.png", "slope_neg": "img/img_0168.png", "slope_both": null, "mi_pos": null, "mi_neg": null}, {"n": 12, "mean_x": 16.89, "mean_y": -48.22, "mean_z": 76.3, "region": "right superior parietal", "topo": "img/img_0169.jpg", "dip": "img/img_0170.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0171.png", "intercept_neg": "img/img_0172.png", "slope_pos": "img/img_0173.png", "slope_neg": "img/img_0174.png", "slope_both": null, "mi_pos": null, "mi_neg": null}, {"n": 4, "mean_x": -9.26, "mean_y": -54.41, "mean_z": 75.81, "region": "left superior parietal", "topo": "img/img_0175.jpg", "dip": "img/img_0176.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0177.png", "intercept_neg": "img/img_0178.png", "slope_pos": "img/img_0179.png", "slope_neg": "img/img_0180.png", "slope_both": null, "mi_pos": null, "mi_neg": null}, {"n": 8, "mean_x": 35.88, "mean_y": -59.94, "mean_z": 61.6, "region": "right dorsal parieto-occipital / occipito-parietal", "topo": "img/img_0181.jpg", "dip": "img/img_0182.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0183.png", "intercept_neg": "img/img_0184.png", "slope_pos": "img/img_0185.png", "slope_neg": "img/img_0186.png", "slope_both": null, "mi_pos": null, "mi_neg": null}, {"n": 6, "mean_x": -30.09, "mean_y": -65.7, "mean_z": 60.13, "region": "left dorsal parieto-occipital / occipito-parietal", "topo": "img/img_0187.jpg", "dip": "img/img_0188.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0189.png", "intercept_neg": "img/img_0190.png", "slope_pos": "img/img_0191.png", "slope_neg": "img/img_0192.png", "slope_both": null, "mi_pos": null, "mi_neg": null}, {"n": 7, "mean_x": 9.48, "mean_y": -68.43, "mean_z": 64.99, "region": "medial superior parietal / precuneus", "topo": "img/img_0193.jpg", "dip": "img/img_0194.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0195.png", "intercept_neg": "img/img_0196.png", "slope_pos": "img/img_0197.png", "slope_neg": "img/img_0198.png", "slope_both": null, "mi_pos": null, "mi_neg": null}]}, "abs_m200": {"id": "abs_m200", "label": "AbsError · baseline [−Inf, −200)", "blurb": "abserror_eye_toEEG. Filename EncodeFromM200P1000 means analysis window; baseline is [−Inf, −200). Topo/dipoles from abserror_tfce_signed_posneg.", "clusters": [{"n": 9, "mean_x": -1.59, "mean_y": 26.69, "mean_z": 64.78, "region": "anterior pre-SMA / dorsal medial superior frontal", "topo": "img/img_0199.jpg", "dip": "img/img_0200.jpg", "intercept": "img/img_0201.png", "slope": "img/img_0202.png", "overview": null}, {"n": 3, "mean_x": -13.61, "mean_y": 0.64, "mean_z": 74.0, "region": "left medial superior frontal, SMA/pre-SMA junction", "topo": "img/img_0203.jpg", "dip": "img/img_0204.jpg", "intercept": "img/img_0205.png", "slope": "img/img_0206.png", "overview": null}, {"n": 5, "mean_x": 24.25, "mean_y": -9.13, "mean_z": 71.98, "region": "right dorsal premotor / lateral SMA vicinity", "topo": "img/img_0207.jpg", "dip": "img/img_0208.jpg", "intercept": "img/img_0209.png", "slope": "img/img_0210.jpg", "overview": null}, {"n": 11, "mean_x": -22.51, "mean_y": -26.15, "mean_z": 75.86, "region": "left dorsal postcentral / superior sensorimotor", "topo": "img/img_0211.jpg", "dip": "img/img_0212.jpg", "intercept": "img/img_0213.png", "slope": "img/img_0214.jpg", "overview": null}, {"n": 10, "mean_x": 2.44, "mean_y": -30.19, "mean_z": 83.75, "region": "paracentral lobule / medial sensorimotor", "topo": "img/img_0215.jpg", "dip": "img/img_0216.jpg", "intercept": "img/img_0217.jpg", "slope": "img/img_0218.png", "overview": null}, {"n": 12, "mean_x": 16.89, "mean_y": -48.22, "mean_z": 76.3, "region": "right superior parietal", "topo": "img/img_0219.jpg", "dip": "img/img_0220.jpg", "intercept": "img/img_0221.png", "slope": "img/img_0222.png", "overview": null}, {"n": 4, "mean_x": -9.26, "mean_y": -54.41, "mean_z": 75.81, "region": "left superior parietal", "topo": "img/img_0223.jpg", "dip": "img/img_0224.jpg", "intercept": "img/img_0225.png", "slope": "img/img_0226.png", "overview": null}, {"n": 8, "mean_x": 35.88, "mean_y": -59.94, "mean_z": 61.6, "region": "right dorsal parieto-occipital / occipito-parietal", "topo": "img/img_0227.jpg", "dip": "img/img_0228.jpg", "intercept": "img/img_0229.png", "slope": "img/img_0230.png", "overview": null}, {"n": 6, "mean_x": -30.09, "mean_y": -65.7, "mean_z": 60.13, "region": "left dorsal parieto-occipital / occipito-parietal", "topo": "img/img_0231.jpg", "dip": "img/img_0232.jpg", "intercept": "img/img_0233.png", "slope": "img/img_0234.jpg", "overview": null}, {"n": 7, "mean_x": 9.48, "mean_y": -68.43, "mean_z": 64.99, "region": "medial superior parietal / precuneus", "topo": "img/img_0235.jpg", "dip": "img/img_0236.jpg", "intercept": "img/img_0237.png", "slope": "img/img_0238.png", "overview": null}]}, "ppem": {"id": "ppem", "label": "ppem (OmegaHΔ) · baseline [−Inf, −200)", "blurb": "anti_target_eye_toEEG · OmegaHDeltaM5000 · same baseline as abs_m200. Topo/dipoles from abserror_tfce_signed_posneg.", "clusters": [{"n": 9, "mean_x": -1.59, "mean_y": 26.69, "mean_z": 64.78, "region": "anterior pre-SMA / dorsal medial superior frontal", "topo": "img/img_0239.jpg", "dip": "img/img_0240.jpg", "intercept": "img/img_0241.png", "slope": "img/img_0242.jpg", "overview": null}, {"n": 3, "mean_x": -13.61, "mean_y": 0.64, "mean_z": 74.0, "region": "left medial superior frontal, SMA/pre-SMA junction", "topo": "img/img_0243.jpg", "dip": "img/img_0244.jpg", "intercept": "img/img_0245.jpg", "slope": "img/img_0246.jpg", "overview": null}, {"n": 5, "mean_x": 24.25, "mean_y": -9.13, "mean_z": 71.98, "region": "right dorsal premotor / lateral SMA vicinity", "topo": "img/img_0247.jpg", "dip": "img/img_0248.jpg", "intercept": "img/img_0249.jpg", "slope": "img/img_0250.png", "overview": null}, {"n": 11, "mean_x": -22.51, "mean_y": -26.15, "mean_z": 75.86, "region": "left dorsal postcentral / superior sensorimotor", "topo": "img/img_0251.jpg", "dip": "img/img_0252.jpg", "intercept": "img/img_0253.png", "slope": "img/img_0254.jpg", "overview": null}, {"n": 10, "mean_x": 2.44, "mean_y": -30.19, "mean_z": 83.75, "region": "paracentral lobule / medial sensorimotor", "topo": "img/img_0255.jpg", "dip": "img/img_0256.jpg", "intercept": "img/img_0257.png", "slope": "img/img_0258.jpg", "overview": null}, {"n": 12, "mean_x": 16.89, "mean_y": -48.22, "mean_z": 76.3, "region": "right superior parietal", "topo": "img/img_0259.jpg", "dip": "img/img_0260.jpg", "intercept": "img/img_0261.jpg", "slope": "img/img_0262.jpg", "overview": null}, {"n": 4, "mean_x": -9.26, "mean_y": -54.41, "mean_z": 75.81, "region": "left superior parietal", "topo": "img/img_0263.jpg", "dip": "img/img_0264.jpg", "intercept": "img/img_0265.jpg", "slope": "img/img_0266.png", "overview": null}, {"n": 8, "mean_x": 35.88, "mean_y": -59.94, "mean_z": 61.6, "region": "right dorsal parieto-occipital / occipito-parietal", "topo": "img/img_0267.jpg", "dip": "img/img_0268.jpg", "intercept": "img/img_0269.jpg", "slope": "img/img_0270.png", "overview": null}, {"n": 6, "mean_x": -30.09, "mean_y": -65.7, "mean_z": 60.13, "region": "left dorsal parieto-occipital / occipito-parietal", "topo": "img/img_0271.jpg", "dip": "img/img_0272.jpg", "intercept": "img/img_0273.jpg", "slope": "img/img_0274.jpg", "overview": null}, {"n": 7, "mean_x": 9.48, "mean_y": -68.43, "mean_z": 64.99, "region": "medial superior parietal / precuneus", "topo": "img/img_0275.jpg", "dip": "img/img_0276.jpg", "intercept": "img/img_0277.png", "slope": "img/img_0278.png", "overview": null}]}, "mivivid": {"id": "mivivid", "label": "MI vividness (evaluateVivid)", "blurb": "vividness_in_MI · MiVivid_EncodeFromM200P1000 · MI trials only · step8-style 1×2 (intercept|slope; MaskSign both). Topo/dipoles from abserror_tfce_signed_posneg.", "fig_labels": ["TFCE overview (MI vividness; intercept | slope)"], "clusters": [{"n": 9, "mean_x": -1.59, "mean_y": 26.69, "mean_z": 64.78, "region": "anterior pre-SMA / dorsal medial superior frontal", "topo": "img/img_0279.jpg", "dip": "img/img_0280.jpg", "intercept": null, "slope": null, "overview": "img/img_0281.png"}, {"n": 3, "mean_x": -13.61, "mean_y": 0.64, "mean_z": 74.0, "region": "left medial superior frontal, SMA/pre-SMA junction", "topo": "img/img_0282.jpg", "dip": "img/img_0283.jpg", "intercept": null, "slope": null, "overview": "img/img_0284.png"}, {"n": 5, "mean_x": 24.25, "mean_y": -9.13, "mean_z": 71.98, "region": "right dorsal premotor / lateral SMA vicinity", "topo": "img/img_0285.jpg", "dip": "img/img_0286.jpg", "intercept": null, "slope": null, "overview": "img/img_0287.png"}, {"n": 11, "mean_x": -22.51, "mean_y": -26.15, "mean_z": 75.86, "region": "left dorsal postcentral / superior sensorimotor", "topo": "img/img_0288.jpg", "dip": "img/img_0289.jpg", "intercept": null, "slope": null, "overview": "img/img_0290.png"}, {"n": 10, "mean_x": 2.44, "mean_y": -30.19, "mean_z": 83.75, "region": "paracentral lobule / medial sensorimotor", "topo": "img/img_0291.jpg", "dip": "img/img_0292.jpg", "intercept": null, "slope": null, "overview": "img/img_0293.png"}, {"n": 12, "mean_x": 16.89, "mean_y": -48.22, "mean_z": 76.3, "region": "right superior parietal", "topo": "img/img_0294.jpg", "dip": "img/img_0295.jpg", "intercept": null, "slope": null, "overview": "img/img_0296.png"}, {"n": 4, "mean_x": -9.26, "mean_y": -54.41, "mean_z": 75.81, "region": "left superior parietal", "topo": "img/img_0297.jpg", "dip": "img/img_0298.jpg", "intercept": null, "slope": null, "overview": "img/img_0299.png"}]}, "me_deviate_cat": {"id": "me_deviate_cat", "label": "ME AbsError×deviate_size (cat)", "blurb": "c9 · ME-only abs_error×deviate_size · abserror_ME_deviateSize. Topo/dipoles from abserror_tfce_signed_posneg.", "fig_labels": ["ME AbsError×deviate_size (theta TFCE)"], "clusters": [{"n": 9, "mean_x": -1.59, "mean_y": 26.69, "mean_z": 64.78, "region": "anterior pre-SMA / dorsal medial superior frontal", "topo": "img/img_0300.jpg", "dip": "img/img_0301.jpg", "intercept": null, "slope": null, "overview": "img/img_0302.png", "overview2": null}]}, "me_deviate_cont": {"id": "me_deviate_cont", "label": "ME AbsError×|degree| (cont)", "blurb": "c9 · ME-only abs_error×deviate (|degree|∈[5,45]) · abserror_ME_deviateCont. Topo/dipoles from abserror_tfce_signed_posneg.", "fig_labels": ["ME AbsError×|degree| (theta TFCE)"], "clusters": [{"n": 9, "mean_x": -1.59, "mean_y": 26.69, "mean_z": 64.78, "region": "anterior pre-SMA / dorsal medial superior frontal", "topo": "img/img_0303.jpg", "dip": "img/img_0304.jpg", "intercept": null, "slope": null, "overview": "img/img_0305.png", "overview2": null}]}, "abs_3way_cat": {"id": "abs_3way_cat", "label": "AbsError×Encode×deviate 3-way (cat)", "blurb": "c9 · abs_error×Encode×deviate_size · abserror_AbsError_x_Encode_x_Deviate (theta slopes + mains). Topo/dipoles from abserror_tfce_signed_posneg.", "fig_labels": ["AbsError slopes (theta)", "Mains (encode·deviate)"], "clusters": [{"n": 9, "mean_x": -1.59, "mean_y": 26.69, "mean_z": 64.78, "region": "anterior pre-SMA / dorsal medial superior frontal", "topo": "img/img_0306.jpg", "dip": "img/img_0307.jpg", "intercept": null, "slope": null, "overview": "img/img_0308.png", "overview2": "img/img_0309.png"}]}, "abs_3way_cont": {"id": "abs_3way_cont", "label": "AbsError×Encode×|degree| 3-way (cont)", "blurb": "c9 · abs_error×Encode×deviate (|degree|) · abserror_AbsError_x_Encode_x_DeviateCont (theta slopes + mains). Topo/dipoles from abserror_tfce_signed_posneg.", "fig_labels": ["AbsError slopes (theta)", "Mains (encode·deviate)"], "clusters": [{"n": 9, "mean_x": -1.59, "mean_y": 26.69, "mean_z": 64.78, "region": "anterior pre-SMA / dorsal medial superior frontal", "topo": "img/img_0310.jpg", "dip": "img/img_0311.jpg", "intercept": null, "slope": null, "overview": "img/img_0312.png", "overview2": "img/img_0313.png"}]}, "mivivid_legacy0": {"id": "mivivid_legacy0", "label": "MI vividness · Legacy0 RI · 0–3000 · pos|neg", "blurb": "mivivid_ri_0to3000_tfce_signed_posneg. Clusters 3–12. MI intercept|slope pos|neg only. TF window 0–3000 ms.", "fig_labels": ["MI intercept | slope · pos", "MI intercept | slope · neg"], "clusters": [{"n": 9, "mean_x": -1.59, "mean_y": 26.69, "mean_z": 64.78, "region": "anterior pre-SMA / dorsal medial superior frontal", "topo": "img/img_0314.jpg", "dip": "img/img_0315.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": null, "intercept_neg": null, "slope_pos": null, "slope_neg": null, "slope_both": null, "mi_pos": "img/img_0316.jpg", "mi_neg": "img/img_0317.jpg"}, {"n": 3, "mean_x": -13.61, "mean_y": 0.64, "mean_z": 74.0, "region": "left medial superior frontal, SMA/pre-SMA junction", "topo": "img/img_0318.jpg", "dip": "img/img_0319.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": null, "intercept_neg": null, "slope_pos": null, "slope_neg": null, "slope_both": null, "mi_pos": "img/img_0320.jpg", "mi_neg": "img/img_0321.jpg"}, {"n": 5, "mean_x": 24.25, "mean_y": -9.13, "mean_z": 71.98, "region": "right dorsal premotor / lateral SMA vicinity", "topo": "img/img_0322.jpg", "dip": "img/img_0323.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": null, "intercept_neg": null, "slope_pos": null, "slope_neg": null, "slope_both": null, "mi_pos": "img/img_0324.jpg", "mi_neg": "img/img_0325.jpg"}, {"n": 11, "mean_x": -22.51, "mean_y": -26.15, "mean_z": 75.86, "region": "left dorsal postcentral / superior sensorimotor", "topo": "img/img_0326.jpg", "dip": "img/img_0327.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": null, "intercept_neg": null, "slope_pos": null, "slope_neg": null, "slope_both": null, "mi_pos": "img/img_0328.jpg", "mi_neg": "img/img_0329.jpg"}, {"n": 10, "mean_x": 2.44, "mean_y": -30.19, "mean_z": 83.75, "region": "paracentral lobule / medial sensorimotor", "topo": "img/img_0330.jpg", "dip": "img/img_0331.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": null, "intercept_neg": null, "slope_pos": null, "slope_neg": null, "slope_both": null, "mi_pos": "img/img_0332.jpg", "mi_neg": "img/img_0333.jpg"}, {"n": 12, "mean_x": 16.89, "mean_y": -48.22, "mean_z": 76.3, "region": "right superior parietal", "topo": "img/img_0334.jpg", "dip": "img/img_0335.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": null, "intercept_neg": null, "slope_pos": null, "slope_neg": null, "slope_both": null, "mi_pos": "img/img_0336.jpg", "mi_neg": "img/img_0337.jpg"}, {"n": 4, "mean_x": -9.26, "mean_y": -54.41, "mean_z": 75.81, "region": "left superior parietal", "topo": "img/img_0338.jpg", "dip": "img/img_0339.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": null, "intercept_neg": null, "slope_pos": null, "slope_neg": null, "slope_both": null, "mi_pos": "img/img_0340.jpg", "mi_neg": "img/img_0341.jpg"}, {"n": 8, "mean_x": 35.88, "mean_y": -59.94, "mean_z": 61.6, "region": "right dorsal parieto-occipital / occipito-parietal", "topo": "img/img_0342.jpg", "dip": "img/img_0343.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": null, "intercept_neg": null, "slope_pos": null, "slope_neg": null, "slope_both": null, "mi_pos": "img/img_0344.jpg", "mi_neg": "img/img_0345.jpg"}, {"n": 6, "mean_x": -30.09, "mean_y": -65.7, "mean_z": 60.13, "region": "left dorsal parieto-occipital / occipito-parietal", "topo": "img/img_0346.jpg", "dip": "img/img_0347.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": null, "intercept_neg": null, "slope_pos": null, "slope_neg": null, "slope_both": null, "mi_pos": "img/img_0348.jpg", "mi_neg": "img/img_0349.jpg"}, {"n": 7, "mean_x": 9.48, "mean_y": -68.43, "mean_z": 64.99, "region": "medial superior parietal / precuneus", "topo": "img/img_0350.jpg", "dip": "img/img_0351.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": null, "intercept_neg": null, "slope_pos": null, "slope_neg": null, "slope_both": null, "mi_pos": "img/img_0352.jpg", "mi_neg": "img/img_0353.jpg"}]}, "abs_wicenter": {"id": "abs_wicenter", "label": "AbsError×Encode · intercept@mean · 0–3000 · FLsfR", "blurb": "abserror_wiCenter_0to3000_FLsfR_tfce_signed_posneg · intercept recentered to the AbsError mean · TF window 0–3000 ms · FLsfR · intercept pos|neg · slope pos|neg + both. Clusters 3–12.", "clusters": [{"n": 9, "mean_x": -1.59, "mean_y": 26.69, "mean_z": 64.78, "region": "anterior pre-SMA / dorsal medial superior frontal", "topo": "img/img_0354.jpg", "dip": "img/img_0355.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0356.png", "intercept_neg": "img/img_0357.png", "slope_pos": "img/img_0358.png", "slope_neg": "img/img_0359.png", "slope_both": "img/img_0360.png", "mi_pos": null, "mi_neg": null}, {"n": 3, "mean_x": -13.61, "mean_y": 0.64, "mean_z": 74.0, "region": "left medial superior frontal, SMA/pre-SMA junction", "topo": "img/img_0361.jpg", "dip": "img/img_0362.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0363.png", "intercept_neg": "img/img_0364.png", "slope_pos": "img/img_0365.png", "slope_neg": "img/img_0366.png", "slope_both": "img/img_0367.png", "mi_pos": null, "mi_neg": null}, {"n": 5, "mean_x": 24.25, "mean_y": -9.13, "mean_z": 71.98, "region": "right dorsal premotor / lateral SMA vicinity", "topo": "img/img_0368.jpg", "dip": "img/img_0369.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0370.png", "intercept_neg": "img/img_0371.png", "slope_pos": "img/img_0372.png", "slope_neg": "img/img_0373.png", "slope_both": "img/img_0374.png", "mi_pos": null, "mi_neg": null}, {"n": 11, "mean_x": -22.51, "mean_y": -26.15, "mean_z": 75.86, "region": "left dorsal postcentral / superior sensorimotor", "topo": "img/img_0375.jpg", "dip": "img/img_0376.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0377.png", "intercept_neg": "img/img_0378.png", "slope_pos": "img/img_0379.png", "slope_neg": "img/img_0380.png", "slope_both": "img/img_0381.png", "mi_pos": null, "mi_neg": null}, {"n": 10, "mean_x": 2.44, "mean_y": -30.19, "mean_z": 83.75, "region": "paracentral lobule / medial sensorimotor", "topo": "img/img_0382.jpg", "dip": "img/img_0383.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0384.png", "intercept_neg": "img/img_0385.png", "slope_pos": "img/img_0386.png", "slope_neg": "img/img_0387.png", "slope_both": "img/img_0388.png", "mi_pos": null, "mi_neg": null}, {"n": 12, "mean_x": 16.89, "mean_y": -48.22, "mean_z": 76.3, "region": "right superior parietal", "topo": "img/img_0389.jpg", "dip": "img/img_0390.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0391.png", "intercept_neg": "img/img_0392.png", "slope_pos": "img/img_0393.png", "slope_neg": "img/img_0394.png", "slope_both": "img/img_0395.png", "mi_pos": null, "mi_neg": null}, {"n": 4, "mean_x": -9.26, "mean_y": -54.41, "mean_z": 75.81, "region": "left superior parietal", "topo": "img/img_0396.jpg", "dip": "img/img_0397.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0398.png", "intercept_neg": "img/img_0399.png", "slope_pos": "img/img_0400.png", "slope_neg": "img/img_0401.png", "slope_both": "img/img_0402.png", "mi_pos": null, "mi_neg": null}, {"n": 8, "mean_x": 35.88, "mean_y": -59.94, "mean_z": 61.6, "region": "right dorsal parieto-occipital / occipito-parietal", "topo": "img/img_0403.jpg", "dip": "img/img_0404.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0405.png", "intercept_neg": "img/img_0406.png", "slope_pos": "img/img_0407.png", "slope_neg": "img/img_0408.png", "slope_both": "img/img_0409.png", "mi_pos": null, "mi_neg": null}, {"n": 6, "mean_x": -30.09, "mean_y": -65.7, "mean_z": 60.13, "region": "left dorsal parieto-occipital / occipito-parietal", "topo": "img/img_0410.jpg", "dip": "img/img_0411.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0412.png", "intercept_neg": "img/img_0413.png", "slope_pos": "img/img_0414.png", "slope_neg": "img/img_0415.png", "slope_both": "img/img_0416.png", "mi_pos": null, "mi_neg": null}, {"n": 7, "mean_x": 9.48, "mean_y": -68.43, "mean_z": 64.99, "region": "medial superior parietal / precuneus", "topo": "img/img_0417.jpg", "dip": "img/img_0418.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0419.png", "intercept_neg": "img/img_0420.png", "slope_pos": "img/img_0421.png", "slope_neg": "img/img_0422.png", "slope_both": "img/img_0423.png", "mi_pos": null, "mi_neg": null}]}, "ppem_m500_0": {"id": "ppem_m500_0", "label": "ppem (OmegaHΔ) · [−500, 0] · FLsfR", "blurb": "anti_target_eye_toEEG/omegahdelta_m500_0_allid_FLsfR_tfce_signed_posneg · OmegaHDeltaM5000 AllID FLsfR · slope [−500, 0] · intercept pos|neg · slope pos|neg + both. Clusters 3–12.", "clusters": [{"n": 9, "mean_x": -1.59, "mean_y": 26.69, "mean_z": 64.78, "region": "anterior pre-SMA / dorsal medial superior frontal", "topo": "img/img_0424.jpg", "dip": "img/img_0425.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0426.png", "intercept_neg": "img/img_0427.png", "slope_pos": "img/img_0428.png", "slope_neg": "img/img_0429.png", "slope_both": "img/img_0430.png", "mi_pos": null, "mi_neg": null}, {"n": 3, "mean_x": -13.61, "mean_y": 0.64, "mean_z": 74.0, "region": "left medial superior frontal, SMA/pre-SMA junction", "topo": "img/img_0431.jpg", "dip": "img/img_0432.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0433.png", "intercept_neg": "img/img_0434.png", "slope_pos": "img/img_0435.png", "slope_neg": "img/img_0436.png", "slope_both": "img/img_0437.png", "mi_pos": null, "mi_neg": null}, {"n": 5, "mean_x": 24.25, "mean_y": -9.13, "mean_z": 71.98, "region": "right dorsal premotor / lateral SMA vicinity", "topo": "img/img_0438.jpg", "dip": "img/img_0439.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0440.png", "intercept_neg": "img/img_0441.png", "slope_pos": "img/img_0442.png", "slope_neg": "img/img_0443.png", "slope_both": "img/img_0444.png", "mi_pos": null, "mi_neg": null}, {"n": 11, "mean_x": -22.51, "mean_y": -26.15, "mean_z": 75.86, "region": "left dorsal postcentral / superior sensorimotor", "topo": "img/img_0445.jpg", "dip": "img/img_0446.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0447.png", "intercept_neg": "img/img_0448.png", "slope_pos": "img/img_0449.png", "slope_neg": "img/img_0450.png", "slope_both": "img/img_0451.png", "mi_pos": null, "mi_neg": null}, {"n": 10, "mean_x": 2.44, "mean_y": -30.19, "mean_z": 83.75, "region": "paracentral lobule / medial sensorimotor", "topo": "img/img_0452.jpg", "dip": "img/img_0453.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0454.png", "intercept_neg": "img/img_0455.png", "slope_pos": "img/img_0456.png", "slope_neg": "img/img_0457.png", "slope_both": "img/img_0458.png", "mi_pos": null, "mi_neg": null}, {"n": 12, "mean_x": 16.89, "mean_y": -48.22, "mean_z": 76.3, "region": "right superior parietal", "topo": "img/img_0459.jpg", "dip": "img/img_0460.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0461.png", "intercept_neg": "img/img_0462.png", "slope_pos": "img/img_0463.png", "slope_neg": "img/img_0464.png", "slope_both": "img/img_0465.png", "mi_pos": null, "mi_neg": null}, {"n": 4, "mean_x": -9.26, "mean_y": -54.41, "mean_z": 75.81, "region": "left superior parietal", "topo": "img/img_0466.jpg", "dip": "img/img_0467.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0468.png", "intercept_neg": "img/img_0469.png", "slope_pos": "img/img_0470.png", "slope_neg": "img/img_0471.png", "slope_both": "img/img_0472.png", "mi_pos": null, "mi_neg": null}, {"n": 8, "mean_x": 35.88, "mean_y": -59.94, "mean_z": 61.6, "region": "right dorsal parieto-occipital / occipito-parietal", "topo": "img/img_0473.jpg", "dip": "img/img_0474.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0475.png", "intercept_neg": "img/img_0476.png", "slope_pos": "img/img_0477.png", "slope_neg": "img/img_0478.png", "slope_both": "img/img_0479.png", "mi_pos": null, "mi_neg": null}, {"n": 6, "mean_x": -30.09, "mean_y": -65.7, "mean_z": 60.13, "region": "left dorsal parieto-occipital / occipito-parietal", "topo": "img/img_0480.jpg", "dip": "img/img_0481.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0482.png", "intercept_neg": "img/img_0483.png", "slope_pos": "img/img_0484.png", "slope_neg": "img/img_0485.png", "slope_both": "img/img_0486.png", "mi_pos": null, "mi_neg": null}, {"n": 7, "mean_x": 9.48, "mean_y": -68.43, "mean_z": 64.99, "region": "medial superior parietal / precuneus", "topo": "img/img_0487.jpg", "dip": "img/img_0488.jpg", "intercept": null, "slope": null, "overview": null, "intercept_pos": "img/img_0489.png", "intercept_neg": "img/img_0490.png", "slope_pos": "img/img_0491.png", "slope_neg": "img/img_0492.png", "slope_both": "img/img_0493.png", "mi_pos": null, "mi_neg": null}]}}}}};
+const PIPE_ORDER = ["autoNum", "N31", "N31_optk", "N34", "OG"];
+
+const state = {
+  viewMode: "dual",
+  leftPipe: "OG",
+  rightPipe: "N31_optk",
+  leftResult: "abs_legacy",
+  rightResult: "abserror",
+  singlePipe: "OG",
+  singleResult: "abs_m200",
+  focusCluster: "all",
+};
+
+function getPipe(id) {
+  return DATA.pipelines[id];
+}
+function pipeOptions() {
+  return PIPE_ORDER.filter((id) => getPipe(id)).map((id) => ({
+    value: id,
+    label: getPipe(id).label,
+  }));
+}
+function resultOptions(pipeId) {
+  const pipe = getPipe(pipeId);
+  if (!pipe) return [];
+  return Object.values(pipe.results).map((r) => ({ value: r.id, label: r.label }));
+}
+function defaultResult(pipeId) {
+  const opts = resultOptions(pipeId);
+  return opts[0] ? opts[0].value : "";
+}
+function ensureResult(pipeId, resultId) {
+  const opts = resultOptions(pipeId);
+  if (opts.some((o) => o.value === resultId)) return resultId;
+  return opts[0] ? opts[0].value : "";
+}
+function esc(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+function figHtml(src, alt, w, h) {
+  if (!src) return "";
+  // Width/height attrs are aspect hints only; CSS forces column-fit width.
+  return (
+    '<div class="fig" style="aspect-ratio:' +
+    w +
+    "/" +
+    h +
+    '">' +
+    '<img src="' +
+    src +
+    '" alt="' +
+    esc(alt) +
+    '" title="Click to open full resolution" style="cursor:zoom-in" onclick="(function(el){var x=window.open(\'\');if(!x)return;x.document.write(\'<!doctype html><title>\'+el.alt+\'</title><img src=&quot;\'+el.src+\'&quot; style=&quot;max-width:100%;height:auto;display:block;margin:0 auto&quot;>\');x.document.close();})(this)" />' +
+    "</div>"
+  );
+}
+function clusterBlock(c, wide, figLabels) {
+  const bits = [];
+  if (c.mean_x != null) bits.push("x=" + Number(c.mean_x).toFixed(1));
+  if (c.mean_y != null) bits.push("y=" + Number(c.mean_y).toFixed(1));
+  if (c.mean_z != null) bits.push("z=" + Number(c.mean_z).toFixed(1));
+  if (c.region) bits.push(c.region);
+  const yLabel = bits.length ? bits.join(" · ") : "no xyz";
+  const figW = wide ? 720 : 480;
+  const figH = wide ? 560 : 380;
+  const anatW = wide ? 200 : 140;
+  const anatH = wide ? 200 : 140;
+  const labels = figLabels || [];
+  const ovLabel =
+    labels[0] ||
+    "TFCE overview (MI vividness; intercept | slope by condition)";
+  const ov2Label = labels[1] || "TFCE panel 2";
+  let anat = "";
+  if (c.topo || c.dip) {
+    anat =
+      '<div class="anat-row">' +
+      figHtml(c.topo, "cluster " + c.n + " topo", anatW, anatH) +
+      figHtml(c.dip, "cluster " + c.n + " dipoles", anatW, anatH) +
+      "</div>";
+  }
+  let body = '<div class="stack">' + anat;
+  if (c.intercept_pos || c.intercept_neg) {
+    body +=
+      '<div class="pair-row">' +
+      '<div><div class="label">Intercept pos</div>' +
+      figHtml(c.intercept_pos, "cluster " + c.n + " intercept pos", figW, figH) +
+      "</div>" +
+      '<div><div class="label">Intercept neg</div>' +
+      figHtml(c.intercept_neg, "cluster " + c.n + " intercept neg", figW, figH) +
+      "</div></div>";
+  }
+  if (c.slope_pos || c.slope_neg) {
+    body +=
+      '<div class="pair-row">' +
+      '<div><div class="label">Slope pos</div>' +
+      figHtml(c.slope_pos, "cluster " + c.n + " slope pos", figW, figH) +
+      "</div>" +
+      '<div><div class="label">Slope neg</div>' +
+      figHtml(c.slope_neg, "cluster " + c.n + " slope neg", figW, figH) +
+      "</div></div>";
+  }
+  if (c.slope_both) {
+    body +=
+      '<div><div class="label">Slope both (two-tailed joint FWER)</div>' +
+      figHtml(c.slope_both, "cluster " + c.n + " slope both", figW, figH) +
+      "</div>";
+  }
+  if (c.mi_pos || c.mi_neg) {
+    body +=
+      '<div class="pair-row">' +
+      '<div><div class="label">MI intercept|slope pos</div>' +
+      figHtml(c.mi_pos, "cluster " + c.n + " MI pos", figW, figH) +
+      "</div>" +
+      '<div><div class="label">MI intercept|slope neg</div>' +
+      figHtml(c.mi_neg, "cluster " + c.n + " MI neg", figW, figH) +
+      "</div></div>";
+  }
+  if (c.intercept) {
+    body +=
+      '<div><div class="label">Intercept 3×3 (vs 0 on diagonal; pairwise off-diagonal)</div>' +
+      figHtml(c.intercept, "cluster " + c.n + " intercept", figW, figH) +
+      "</div>";
+  }
+  if (c.slope) {
+    body +=
+      '<div><div class="label">Slope 3×3 (condition × continuous predictor)</div>' +
+      figHtml(c.slope, "cluster " + c.n + " slope", figW, figH) +
+      "</div>";
+  }
+  if (c.overview && !c.intercept && !c.slope) {
+    const ovW = wide ? 720 : 480;
+    const ovH = wide ? 520 : 400;
+    body +=
+      '<div><div class="label">' +
+      esc(ovLabel) +
+      "</div>" +
+      figHtml(c.overview, "cluster " + c.n + " TFCE overview", ovW, ovH) +
+      "</div>";
+  }
+  if (c.overview2 && !c.intercept && !c.slope) {
+    const ovW = wide ? 720 : 480;
+    const ovH = wide ? 520 : 400;
+    body +=
+      '<div><div class="label">' +
+      esc(ov2Label) +
+      "</div>" +
+      figHtml(c.overview2, "cluster " + c.n + " TFCE panel 2", ovW, ovH) +
+      "</div>";
+  }
+  body += "</div>";
+  return (
+    '<div class="card"><div class="card-h"><span>Cluster ' +
+    c.n +
+    '</span><span class="trail">' +
+    esc(yLabel) +
+    "</span></div><div class=\"card-b\">" +
+    body +
+    "</div></div>"
+  );
+}
+function selectHtml(id, value, options, minWidth) {
+  let opts = options
+    .map(function (o) {
+      return (
+        '<option value="' +
+        esc(o.value) +
+        '"' +
+        (o.value === value ? " selected" : "") +
+        ">" +
+        esc(o.label) +
+        "</option>"
+      );
+    })
+    .join("");
+  return (
+    '<select id="' +
+    id +
+    '" style="min-width:' +
+    minWidth +
+    'px">' +
+    opts +
+    "</select>"
+  );
+}
+function panelHtml(side, title, pipeId, resultId, wide) {
+  const pipe = getPipe(pipeId);
+  const rid = ensureResult(pipeId, resultId);
+  const result = pipe && pipe.results[rid];
+  const clusters = result ? result.clusters : [];
+  const noteTitle = [
+    pipe ? pipe.note : "",
+    result
+      ? result.blurb +
+        " · " +
+        clusters.length +
+        " cluster" +
+        (clusters.length === 1 ? "" : "s")
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  let notes = '<div class="panel-notes muted" title="' + esc(noteTitle) + '">';
+  if (pipe) {
+    notes += "<div>" + esc(pipe.note) + "</div>";
+  }
+  if (result) {
+    notes +=
+      "<div>" +
+      esc(result.blurb) +
+      " · " +
+      clusters.length +
+      " cluster" +
+      (clusters.length === 1 ? "" : "s") +
+      "</div>";
+  }
+  notes += "</div>";
+  let html =
+    '<div class="panel" data-panel="' +
+    side +
+    '"><div class="panel-meta"><h2>' +
+    esc(title) +
+    '</h2><div class="row">' +
+    selectHtml(side + "-pipe", pipeId, pipeOptions(), 180) +
+    selectHtml(side + "-result", rid, resultOptions(pipeId), 260) +
+    "</div>" +
+    notes +
+    "</div>";
+  if (!result || !clusters.length) {
+    html +=
+      '<div class="callout warn">此流程目前沒有所選 result 的 unsigned LME 圖（之後跑完可重跑產生器補上）。</div>';
+  } else {
+    html +=
+      '<div class="stack" style="gap:16px">' +
+      clusters
+        .map(function (c) {
+          return clusterBlock(c, wide, result && result.fig_labels);
+        })
+        .join("") +
+      "</div>";
+  }
+  html += "</div>";
+  return html;
+}
+function bindSelect(id, onChange) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener("change", function () {
+    onChange(el.value);
+  });
+}
+function render() {
+  const lp = getPipe(state.leftPipe) ? state.leftPipe : (pipeOptions()[0] || { value: "OG" }).value;
+  const rp = getPipe(state.rightPipe) ? state.rightPipe : (pipeOptions()[0] || { value: "N31_optk" }).value;
+  const sp = getPipe(state.singlePipe) ? state.singlePipe : (pipeOptions()[0] || { value: "OG" }).value;
+  const lr = ensureResult(lp, state.leftResult);
+  const rr = ensureResult(rp, state.rightResult);
+  const sr = ensureResult(sp, state.singleResult);
+  state.leftPipe = lp;
+  state.rightPipe = rp;
+  state.singlePipe = sp;
+  state.leftResult = lr;
+  state.rightResult = rr;
+  state.singleResult = sr;
+
+  const singleClusters = (getPipe(sp) && getPipe(sp).results[sr] && getPipe(sp).results[sr].clusters) || [];
+  const focusOpts = [{ value: "all", label: "All clusters (A→P, L→R)" }].concat(
+    singleClusters.map(function (c) {
+      const bits = [];
+      if (c.mean_x != null) bits.push("x=" + Number(c.mean_x).toFixed(1));
+      if (c.mean_y != null) bits.push("y=" + Number(c.mean_y).toFixed(1));
+      if (c.mean_z != null) bits.push("z=" + Number(c.mean_z).toFixed(1));
+      if (c.region) bits.push(c.region);
+      return {
+        value: String(c.n),
+        label: bits.length
+          ? "Cluster " + c.n + " (" + bits.join(", ") + ")"
+          : "Cluster " + c.n,
+      };
+    })
+  );
+  if (!focusOpts.some(function (o) { return o.value === state.focusCluster; })) {
+    state.focusCluster = "all";
+  }
+  const shown =
+    state.focusCluster === "all"
+      ? singleClusters
+      : singleClusters.filter(function (c) {
+          return String(c.n) === state.focusCluster;
+        });
+
+  let main = "";
+  if (state.viewMode === "dual") {
+    main =
+      '<div class="grid2">' +
+      panelHtml("left", "Left", lp, lr, false) +
+      panelHtml("right", "Right", rp, rr, false) +
+      "</div>";
+  } else {
+    main =
+      '<div class="stack">' +
+      '<div class="row">' +
+      selectHtml("single-pipe", sp, pipeOptions(), 180) +
+      selectHtml("single-result", sr, resultOptions(sp), 260) +
+      selectHtml("focus-cluster", state.focusCluster, focusOpts, 200) +
+      "</div>";
+    if (getPipe(sp)) {
+      main += '<div class="muted">' + esc(getPipe(sp).note) + "</div>";
+    }
+    if (getPipe(sp) && getPipe(sp).results[sr] && getPipe(sp).results[sr].blurb) {
+      main += '<div class="muted">' + esc(getPipe(sp).results[sr].blurb) + "</div>";
+    }
+    if (!shown.length) {
+      main +=
+        '<div class="callout warn">此流程目前沒有所選 result 的 unsigned LME 圖。</div>';
+    } else {
+      main +=
+        '<div class="stack" style="gap:16px">' +
+        shown
+          .map(function (c) {
+            var res = getPipe(sp) && getPipe(sp).results[sr];
+            return clusterBlock(c, true, res && res.fig_labels);
+          })
+          .join("") +
+        "</div>";
+    }
+    main += "</div>";
+  }
+
+  document.getElementById("app").innerHTML =
+    '<div class="stack stack-lg">' +
+    "<div><h1>MOBI cluster · 處理流程比較</h1>" +
+    '<div class="muted">雙欄並排（可切單欄）。流程：autoNum / N31 / N31_optk / N34 / OG。' +
+    "OG 內再選 AbsError baseline 或 ppem。Cluster 排序：frontal → occipital（y 大→小），再左 → 右（x 小→大）。" +
+    "跨流程 cluster 編號不可同源對齊。本頁為完全離線單檔 HTML。</div></div>" +
+    '<div class="callout">N31_optk（AbsError 與 ppem）皆使用 baseline_lim = [−Inf, −200]。' +
+    "OG cluster 3/4/5/6/7/8/9/10/11/12 用指定腦區標註。其他流程的腦區是 MNI dipole 對 AAL 的標籤；括號內為最近區域的距離。" +
+    "OG AbsError · baseline (−Inf, 0) = study 根目錄 legacy full-epoch。" +
+    "OG AbsError · baseline [−Inf, −200) = abserror_eye_toEEG（檔名 EncodeFromM200P1000 指分析窗，不是 baseline 起點）。" +
+    "OG / N31_optk 的 ppem = OmegaHDeltaM5000；OG ppem 與 N31_optk 同為 baseline [−Inf, −200)。" +
+    "OG MI vividness = vividness_in_MI（MiVivid_EncodeFromM200P1000；僅 MI trials；step8 視覺 1×2 intercept|slope）。" +
+    "OG MI vividness · Legacy0 RI · 0–3000 = mivivid_ri_0to3000_tfce_signed_posneg（c3–c12；只顯示 MI intercept|slope pos|neg；TF 窗 0–3000 ms）。" +
+    "OG AbsError×Encode · intercept@mean · 0–3000 · FLsfR = abserror_wiCenter_0to3000_FLsfR_tfce_signed_posneg（intercept 對齊 AbsError 平均；TF 窗 0–3000 ms；intercept pos|neg；slope pos|neg + both；c3–c12）。" +
+    "OG ppem · [−500, 0] · FLsfR = omegahdelta_m500_0_allid_FLsfR_tfce_signed_posneg（OmegaHDeltaM5000 AllID FLsfR；intercept pos|neg；slope pos|neg + both；c3–c12）。" +
+    "N31_optk 額外 checkpoints = frontal theta（c4）AbsError×target-deviate（cat/cont / MEvp / 3-way）。" +
+    "OG 額外 checkpoints = c9 ME×deviate（cat/cont）與 AbsError×Encode×deviate 3-way（cat/cont）。</div>" +
+    '<div class="row">' +
+    '<button type="button" class="pill' +
+    (state.viewMode === "dual" ? " active" : "") +
+    '" id="mode-dual">雙欄並排</button>' +
+    '<button type="button" class="pill' +
+    (state.viewMode === "single" ? " active" : "") +
+    '" id="mode-single">單欄深看</button>' +
+    "</div>" +
+    '<hr class="divider" />' +
+    main +
+    '<div class="faint">' +
+    esc(DATA.generated_note || "") +
+    " · offline HTML export</div>" +
+    "</div>";
+
+  document.getElementById("mode-dual").onclick = function () {
+    state.viewMode = "dual";
+    render();
+  };
+  document.getElementById("mode-single").onclick = function () {
+    state.viewMode = "single";
+    render();
+  };
+
+  if (state.viewMode === "dual") {
+    bindSelect("left-pipe", function (v) {
+      state.leftPipe = v;
+      state.leftResult = defaultResult(v);
+      render();
+    });
+    bindSelect("left-result", function (v) {
+      state.leftResult = v;
+      render();
+    });
+    bindSelect("right-pipe", function (v) {
+      state.rightPipe = v;
+      state.rightResult = defaultResult(v);
+      render();
+    });
+    bindSelect("right-result", function (v) {
+      state.rightResult = v;
+      render();
+    });
+  } else {
+    bindSelect("single-pipe", function (v) {
+      state.singlePipe = v;
+      state.singleResult = defaultResult(v);
+      state.focusCluster = "all";
+      render();
+    });
+    bindSelect("single-result", function (v) {
+      state.singleResult = v;
+      state.focusCluster = "all";
+      render();
+    });
+    bindSelect("focus-cluster", function (v) {
+      state.focusCluster = v;
+      render();
+    });
+  }
+}
+
+render();
+</script>
+</body>
+</html>
